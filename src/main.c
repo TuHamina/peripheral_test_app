@@ -6,44 +6,8 @@
  */
 
 #include <zephyr/kernel.h>
-#include <zephyr/sys/printk.h>
-#include <zephyr/device.h>
 #include <zephyr/drivers/uart.h>
-
-void nfctest_mode1(void)
-{
-    printk("NFC test mode 1 running\n");
-}
-
-void nfctest_send_data(const char *data)
-{
-    printk("NFC data sent\n");
-}
-
-void nfctest_receive_data(const char *data)
-{
-	printk("NFC data received\n");
-}
-
-void nfctest(int mode)
-{
-    if (mode == 1)
-	{
-		nfctest_mode1();
-	}
-    else if (mode == 2)
-	{
-        nfctest_send_data("TESTDATA");
-	}
-    else if (mode == 3)
-	{
-		nfctest_receive_data("TESTDATA");
-	}
-    else
-    {
-        printk("Invalid mode\n");
-    }
-}
+#include "nfctest.h"
 
 int main(void)
 {
@@ -52,10 +16,17 @@ int main(void)
 
     if (!device_is_ready(uart_dev))
     {
-        printk("UART not ready!\n");
+        printk("UART not ready\n");
         return -1;
     }
     printk("UART NFC test ready. Type 'A' for mode 1, 'B' for mode 2\n");
+
+    if (nfctest_setup() < 0) {
+        printk("NFC setup failed. Cannot setup NFC T2T library\n");
+        return -1;
+    }
+
+    printk("NFC ready\n");
 
     while (1)
     {
