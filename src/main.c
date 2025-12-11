@@ -21,34 +21,37 @@ int main(void)
     }
     printk("UART NFC test ready. Type 'A' for mode 1, 'B' for mode 2\n");
 
-    if (nfctest_setup() < 0) {
+    if (nfctest_setup() < 0)
+    {
         printk("NFC setup failed. Cannot setup NFC T2T library\n");
         return -1;
     }
 
     printk("NFC ready\n");
 
+    /* Main loop: read input from UART and trigger NFC operations */
     while (1)
     {
+        /* Poll for UART input (non-blocking) */
         if (uart_poll_in(uart_dev, &uart_input) == 0)
         {
-            if (uart_input == 'A') 
+            /* Choose NFC operation mode based on user input */
+            if (uart_input == '1')
             {
+                /* Mode 1: send/read-only NDEF message */
                 nfctest(1);
             }
-            else if (uart_input == 'B')
+            else if (uart_input == '2')
             {
+                /* Mode 2: receive/writeable NDEF message */
                 nfctest(2);
-            }
-            else if (uart_input == 'C')
-            {
-                nfctest(3);
             }
             else
             {
                 printk("Unknown input\n");
             }
         }
+
         k_msleep(100);
     }
 }

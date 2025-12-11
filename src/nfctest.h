@@ -5,8 +5,14 @@
 
 #define NDEF_MSG_BUF_SIZE 128
 
+/* Initializes the Type 4 Tag with callback */
 int nfctest_setup(void);
-int nfctest_send_data(void);
+
+/*
+ * Test entry point
+ * mode == 1 → send (read-only)
+ * mode == 2 → receive (read/write)
+ */
 void nfctest(int mode);
 
 #endif /* NFC_TEST_H */
