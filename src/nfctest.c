@@ -15,7 +15,7 @@ static bool ndef_write_done;
 
 static const uint8_t en_code[] = {'e', 'n'};
 
-static const uint8_t testdata[] = { 'T', 'E', 'S', 'T', 'D', 'A', 'T', 'A' };
+//static const uint8_t testdata[] = { 'T', 'E', 'S', 'T', 'D', 'A', 'T', 'A' };
 
 static uint8_t m_ndef_msg_buf[NDEF_MSG_BUF_SIZE];
 static uint32_t m_ndef_len = NDEF_MSG_BUF_SIZE;
@@ -50,7 +50,9 @@ static void nfc_t4t_callback(void *context,
             printk("NDEF message read, length: %zu\n", data_length);
 
             ndef_read_done = true;
-            k_condvar_signal(&nfc_read_cv);    
+            k_condvar_signal(&nfc_read_cv);
+            
+            printk("PASS\n");   
             break;
 
         case NFC_T4T_EVENT_NDEF_UPDATED:
@@ -75,6 +77,8 @@ static void nfc_t4t_callback(void *context,
 
             ndef_write_done = true;
             k_condvar_signal(&nfc_write_cv);
+
+            printk("PASS\n");
             break;
         
         default:
@@ -88,7 +92,8 @@ static void nfc_t4t_callback(void *context,
 /*
  * Build a simple NDEF text record and encode it into the provided buffer.
  */
-static int build_text_ndef(uint8_t *buff, uint32_t size)
+static int build_text_ndef(uint8_t *buff, uint32_t size, const uint8_t *data,
+                           size_t data_length)
 {
     int err;
     uint32_t ndef_size = nfc_t4t_ndef_file_msg_size_get(size);
@@ -97,8 +102,8 @@ static int build_text_ndef(uint8_t *buff, uint32_t size)
                     UTF_8,
                     en_code,
                     sizeof(en_code),
-                    testdata,
-                    sizeof(testdata));
+                    data,
+                    data_length);
 
     NFC_NDEF_MSG_DEF(nfc_text_msg, 1);
 
@@ -135,15 +140,21 @@ static int build_text_ndef(uint8_t *buff, uint32_t size)
  * Start NFC tag emulation with a static (read-only) payload.
  * Wait until a phone reads the message.
  */
-static int nfctest_send_data(void)
+static int nfctest_send_data(const uint8_t *data, size_t data_length)
 {
     int err;
+
+    if (data == NULL || data_length == 0)
+    {
+        printk("No NFC data provided\n");
+        return -EINVAL;
+    }
 
     printk("Encoding NFC message...\n");
 
     size_t size_in = sizeof(m_ndef_msg_buf);
 
-    if (build_text_ndef(m_ndef_msg_buf, size_in) < 0)
+    if (build_text_ndef(m_ndef_msg_buf, size_in, data, data_length) < 0)
     {
         printk("Failed to build NDEF, cannot encode message\n");
         return -1;
@@ -226,14 +237,16 @@ int nfctest_setup(void)
     return nfc_t4t_setup(nfc_t4t_callback, NULL);
 }
 
-void nfctest(int mode)
+void nfctest(int mode, const uint8_t *data, size_t data_length)
 {
     if (mode == 1)
     {
-        nfctest_send_data();
+        printk("NFCTEST MODE 1 START\n");
+        nfctest_send_data(data, data_length);
     }
     else if (mode == 2)
     {
+        printk("NFCTEST MODE 2 START\n");
         nfctest_receive_data();
     }
     else

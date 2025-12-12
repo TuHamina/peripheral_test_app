@@ -13,6 +13,6 @@ int nfctest_setup(void);
  * mode == 1 → send (read-only)
  * mode == 2 → receive (read/write)
  */
-void nfctest(int mode);
+void nfctest(int mode, const uint8_t *data, size_t data_length);
 
 #endif /* NFC_TEST_H */
