@@ -1,4 +1,3 @@
-#include <zephyr/kernel.h>
 #include <zephyr/shell/shell.h>
 #include <zephyr/drivers/uart.h>
 #include "nfctest.h"
@@ -6,8 +5,11 @@
 static int cmd_nfctest(const struct shell *sh, size_t argc, char **argv)
 {
     int mode;
-    uint8_t testdata[NDEF_MSG_BUF_SIZE] = {0};
-    size_t data_len = 0;
+    int ret;
+
+    uint8_t tx_buf[NDEF_MSG_BUF_SIZE] = {0};
+    size_t tx_len = 0;
+
     if (argc < 2)
     {
         shell_print(sh, "Usage: nfctest <mode>");
@@ -32,26 +34,48 @@ static int cmd_nfctest(const struct shell *sh, size_t argc, char **argv)
 
     if (mode == 1 && argc >= 3)
     {
-        data_len = strlen(argv[2]);
-        if (data_len >= NDEF_MSG_BUF_SIZE)
+        tx_len = strlen(argv[2]);
+        if (tx_len >= NDEF_MSG_BUF_SIZE)
         {
             shell_print(sh, "Text too long (max %d)", NDEF_MSG_BUF_SIZE - 1);
             return -EINVAL;
         }
 
-        memcpy(testdata, argv[2], data_len);
-        testdata[data_len] = '\0';
+        memcpy(tx_buf, argv[2], tx_len);
+        tx_buf[tx_len] = '\0';
 
-        shell_print(sh, "NFC text set to: %s", testdata);
+        shell_print(sh, "NFC text set to: %s", tx_buf);
     }
 
     shell_print(sh, "Starting NFC test mode %d", mode);
 
-    nfctest(mode, testdata, data_len);
+    ret = nfctest(mode, tx_buf, tx_len);
 
-    shell_print(sh, "Command returned");
+    if (ret == 0 && mode == 2)
+    {
+        uint8_t rx_buf[128];
+        size_t rx_len;
 
-    return 0;
+        if (nfctest_get_rx_text(rx_buf, sizeof(rx_buf), &rx_len) == 0)
+        {
+            shell_print(sh, "NFC RX TEXT: %s", rx_buf);
+        }
+        else
+        {
+            shell_print(sh, "No NFC RX data");
+        }
+    }
+
+    if (ret == 0)
+    {
+        shell_print(sh, "OK");
+    }
+    else
+    {
+        shell_print(sh, "FAIL (%d)", ret);
+    }
+
+    return ret;
 }
 
 SHELL_CMD_REGISTER(nfctest, NULL,
