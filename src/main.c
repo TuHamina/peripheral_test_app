@@ -2,6 +2,8 @@
 #include <zephyr/drivers/uart.h>
 #include "nfctest.h"
 
+LOG_MODULE_REGISTER(shell_nfctest);
+
 static int cmd_nfctest(const struct shell *sh, size_t argc, char **argv)
 {
     int mode;
@@ -99,57 +101,13 @@ SHELL_CMD_REGISTER(params, NULL,
 
 int main(void)
 {
-    // const struct device *uart_dev = DEVICE_DT_GET(DT_CHOSEN(zephyr_console));
-    // uint8_t uart_input;
-
-    // if (!device_is_ready(uart_dev))
-    // {
-    //     printk("UART not ready\n");
-    //     return -1;
-    // }
-    // printk("UART NFC test ready. Type 'A' for mode 1, 'B' for mode 2\n");
-
-    //if (nfctest_setup() < 0)
-    //{
-    //     printk("NFC setup failed. Cannot setup NFC T2T library\n");
-    //     return -1;
-    //}
-
-    //printk("NFC ready\n");
-
-    // /* Main loop: read input from UART and trigger NFC operations */
-    // while (1)
-    // {
-    //     /* Poll for UART input (non-blocking) */
-    //     if (uart_poll_in(uart_dev, &uart_input) == 0)
-    //     {
-    //         /* Choose NFC operation mode based on user input */
-    //         if (uart_input == '1')
-    //         {
-    //             /* Mode 1: send/read-only NDEF message */
-    //             nfctest(1);
-    //         }
-    //         else if (uart_input == '2')
-    //         {
-    //             /* Mode 2: receive/writeable NDEF message */
-    //             nfctest(2);
-    //         }
-    //         else
-    //         {
-    //             printk("Unknown input\n");
-    //         }
-    //     }
-
-    //     k_msleep(100);
-    // }
-
     if (nfctest_setup() < 0)
     {
-            printk("NFC setup failed. Cannot setup NFC T2T library\n");
+            LOG_ERR("NFC setup failed. Cannot setup NFC T2T library\n");
             return -1;
     }
 
-    printk("NFC ready\n");
+    LOG_INF("NFC ready\n");
 }
 
 #if DT_NODE_HAS_COMPAT(DT_CHOSEN(zephyr_shell_uart), zephyr_cdc_acm_uart)

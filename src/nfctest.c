@@ -1,11 +1,13 @@
 #include <zephyr/kernel.h>
-#include <zephyr/sys/printk.h>
 #include <nfc/ndef/msg.h>
 #include <nfc/ndef/text_rec.h>
 #include <nfc/t4t/ndef_file.h>
 #include <nfc_t4t_lib.h>
 #include <nfc/ndef/msg_parser.h>
+#include <zephyr/logging/log.h>
 #include "nfctest.h"
+
+LOG_MODULE_REGISTER(nfctest);
 
 K_MUTEX_DEFINE(nfc_lock);
 K_CONDVAR_DEFINE(nfc_read_cv);
@@ -13,6 +15,8 @@ K_CONDVAR_DEFINE(nfc_write_cv);
 
 static bool ndef_read_done;
 static bool ndef_write_done;
+
+static bool field_off;
 
 static const uint8_t en_code[] = {'e', 'n'};
 
@@ -29,7 +33,7 @@ static int handle_ndef_write_text_record(const uint8_t *data, size_t data_length
 
     if (data_length <= 2)
     {
-        printk("NDEF data too short\n");
+        LOG_WRN("NDEF data too short");
         return -EINVAL;
     }
 
@@ -49,7 +53,7 @@ static int handle_ndef_write_text_record(const uint8_t *data, size_t data_length
                                 &ndef_msg_len);
     if (err)
     {
-        printk("Record parse failed, err: %d\n", err);
+        LOG_ERR("Record parse failed, err: %d", err);
         return err;
     }
 
@@ -59,7 +63,7 @@ static int handle_ndef_write_text_record(const uint8_t *data, size_t data_length
         record.type[0] != 'T')
     {
 
-        printk("Not a TEXT record\n");
+        LOG_WRN("Not a TEXT record");
         return -ENOTSUP;
     }
 
@@ -69,7 +73,7 @@ static int handle_ndef_write_text_record(const uint8_t *data, size_t data_length
 
     if (payload_len < 1)
     {
-        printk("Invalid TEXT payload length\n");
+        LOG_ERR("Invalid TEXT payload length");
         return -EINVAL;
     }
 
@@ -79,7 +83,7 @@ static int handle_ndef_write_text_record(const uint8_t *data, size_t data_length
 
     if (payload_len < (1 + lang_len))
     {
-        printk("Invalid language length\n");
+        LOG_ERR("Invalid language length");
         return -EINVAL;
     }
 
@@ -87,7 +91,7 @@ static int handle_ndef_write_text_record(const uint8_t *data, size_t data_length
     const uint8_t *text = &payload[1 + lang_len];
     uint32_t text_len = payload_len - 1 - lang_len;
 
-    printk("TEXT RECORD RECEIVED\n");
+    LOG_INF("TEXT RECORD RECEIVED");
 
     if (text_len >= NFC_TEST_RX_MAX)
     {
@@ -121,27 +125,29 @@ static void nfc_t4t_callback(void *context,
     switch (event) 
     {
         case NFC_T4T_EVENT_FIELD_ON:
-            printk("NFC field detected: phone is near\n");
+            LOG_INF("NFC field detected: phone is near");
             break;
 
         case NFC_T4T_EVENT_FIELD_OFF:
-            printk("NFC field lost: phone moved away\n");
+            LOG_INF("NFC field lost: phone moved away");
+            field_off = true;
+            k_condvar_signal(&nfc_read_cv);
+            k_condvar_signal(&nfc_write_cv);
             break;
 
         case NFC_T4T_EVENT_NDEF_READ:
-            printk("NDEF message read, length: %zu\n", data_length);
+            LOG_INF("NDEF message read, length: %zu", data_length);
 
             ndef_read_done = true;
             k_condvar_signal(&nfc_read_cv);
-             
             break;
 
         case NFC_T4T_EVENT_NDEF_UPDATED:
-            printk("NDEF message updated, new length: %zu\n", data_length);
+            LOG_INF("NDEF message updated, new length: %zu", data_length);
   
             if (data_length <= 2)
             {
-                printk("First write (NLEN=0), waiting for actual data...\n");
+                LOG_DBG("First write (NLEN=0), waiting for actual data...");
                 break;
             }
 
@@ -151,7 +157,7 @@ static void nfc_t4t_callback(void *context,
             break;
         
         default:
-            printk("NFC T4T event: %d\n", event);
+            LOG_INF("NFC T4T event: %d", event);
             break;
     }
 
@@ -181,7 +187,7 @@ static int build_text_ndef(uint8_t *buff, uint32_t size, const uint8_t *data,
 
     if (err < 0)
     {
-        printk("Record add failed\n");
+        LOG_ERR("Record add failed");
         return err;
     }
     
@@ -191,14 +197,14 @@ static int build_text_ndef(uint8_t *buff, uint32_t size, const uint8_t *data,
 
     if (err < 0)
     {
-        printk("Encode failed\n");
+        LOG_ERR("Encode failed");
         return err;
     }
 
 	err = nfc_t4t_ndef_file_encode(buff, &ndef_size);
 	if (err) 
     {
-        printk("nfc_t4t_ndef_file_encode() failed! err = %d\n", err);
+        LOG_ERR("nfc_t4t_ndef_file_encode() failed! err = %d", err);
 		return err;
 	}
 
@@ -211,15 +217,13 @@ static int build_text_ndef(uint8_t *buff, uint32_t size, const uint8_t *data,
  */
 static int nfctest_send_data(const uint8_t *data, size_t data_length)
 {
-    int err;
-
     if (data == NULL || data_length == 0)
     {
-        printk("No NFC data provided\n");
+        LOG_ERR("No NFC data provided");
         return -EINVAL;
     }
 
-    printk("Encoding NFC message...\n");
+    LOG_INF("Encoding NFC message...");
 
     memset(m_ndef_msg_buf, 0, sizeof(m_ndef_msg_buf));
 
@@ -227,38 +231,43 @@ static int nfctest_send_data(const uint8_t *data, size_t data_length)
 
     if (build_text_ndef(m_ndef_msg_buf, size_in, data, data_length) < 0)
     {
-        printk("Failed to build NDEF, cannot encode message\n");
-        return -1;
+        LOG_ERR("Failed to build NDEF, cannot encode message");
+        return -EIO;
     }
 
     if (nfc_t4t_ndef_staticpayload_set(m_ndef_msg_buf, m_ndef_len) < 0)
     {
-        printk("Payload set failed\n");
-        return -1;
+        LOG_ERR("Payload set failed");
+        return -EIO;
     }
 
     if (nfc_t4t_emulation_start() < 0)
     {
-        printk("Emulation start failed\n");
-        return -1;
+        LOG_ERR("Emulation start failed");
+        return -EIO;
     }
 
-    printk("NFC message ready for Read, approach with phone\n");
+    LOG_INF("NFC message ready for Read, approach with phone");
 
     /* Wait for NDEF read event from callback */
     k_mutex_lock(&nfc_lock, K_FOREVER); //change K_FOREVER
     ndef_read_done = false;
+    field_off = false;
 
-    err = k_condvar_wait(&nfc_read_cv, &nfc_lock, K_FOREVER);
-    if (err == -EAGAIN)
+    while (!ndef_read_done)
     {
-        printk("Timeout while waiting for NDEF read\n");
+        k_condvar_wait(&nfc_read_cv, &nfc_lock, K_FOREVER);
+    }
+
+    while (!field_off)
+    {
+        k_condvar_wait(&nfc_read_cv, &nfc_lock, K_FOREVER);
     }
 
     k_mutex_unlock(&nfc_lock);
 
     nfc_t4t_emulation_stop();
-    printk("NDEF read done, emulation stopped\n");
+    LOG_INF("NDEF read done, emulation stopped");
 
     return 0;
 }
@@ -275,36 +284,55 @@ static int nfctest_receive_data(const uint8_t *data, size_t data_length)
 
     if (nfc_t4t_ndef_rwpayload_set(m_ndef_msg_buf, m_ndef_len) < 0)
     {
-        printk("Payload set failed\n");
+        LOG_ERR("Payload set failed");
         return -1;
     }
 
     if (nfc_t4t_emulation_start() < 0)
     {
-        printk("Emulation start failed\n");
+        LOG_ERR("Emulation start failed");
         return -1;
     }
 
-    printk("NFC message ready for Read/Write, approach with phone\n");
+    LOG_INF("NFC message ready for Read/Write, approach with phone");
 
     /* Wait for NDEF write event from callback*/
     k_mutex_lock(&nfc_lock, K_FOREVER); //change K_FOREVER
     ndef_write_done = false;
+    field_off = false;
 
-    err = k_condvar_wait(&nfc_write_cv, &nfc_lock, K_FOREVER);
+    while (!ndef_write_done)
+    {
+        err = k_condvar_wait(&nfc_write_cv, &nfc_lock, K_FOREVER);
+        if (err)
+        {
+            k_mutex_unlock(&nfc_lock);
+            return err;
+        }
+    }
+
     if (err == -EAGAIN)
     {
-        printk("Timeout while waiting for NDEF write\n");
-    }   
-
+        LOG_WRN("Waiting for NDEF write failed");
+    }
     int parse_ret;
 
     parse_ret = handle_ndef_write_text_record(m_ndef_msg_buf, m_ndef_len);
 
+    while (!field_off)
+    {
+        err = k_condvar_wait(&nfc_write_cv, &nfc_lock, K_FOREVER);
+        if (err)
+        {
+            k_mutex_unlock(&nfc_lock);
+            return err;
+        }
+    }
+
     k_mutex_unlock(&nfc_lock);
 
     nfc_t4t_emulation_stop();
-    printk("NDEF write done, emulation stopped\n");
+    LOG_INF("NDEF write done, emulation stopped");
 
     if (parse_ret < 0)
     {
@@ -323,17 +351,17 @@ int nfctest(int mode, const uint8_t *data, size_t data_length)
 {
     if (mode == 1)
     {
-        printk("NFCTEST MODE 1 START\n");
+        LOG_INF("NFCTEST MODE 1 START");
         return nfctest_send_data(data, data_length);
     }
     else if (mode == 2)
     {
-        printk("NFCTEST MODE 2 START\n");
+        LOG_INF("NFCTEST MODE 2 START");
         return nfctest_receive_data(data, data_length);
     }
     else
     {
-        printk("Invalid mode\n");
+        LOG_ERR("Invalid mode");
         return -EINVAL;
     }
 }
