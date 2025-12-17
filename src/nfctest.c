@@ -91,12 +91,6 @@ static int handle_ndef_text_record(const uint8_t *data, size_t data_length, uint
     const uint8_t *text = &payload[1 + lang_len];
     uint32_t text_len = payload_length - 1 - lang_len;
 
-    if (!payload_buf || !payload_len)
-    {
-        LOG_ERR("RX buffer not initialized");
-        return -EINVAL;
-    }
-
     uint32_t copy_len = MIN(text_len, NFCTEST_PAYLOAD_MAX - 1);
 
     memcpy(payload_buf, text, copy_len);
@@ -182,7 +176,7 @@ static void nfc_t4t_callback(void *context,
  * Build a simple NDEF text record and encode it into the provided buffer.
  */
 static int build_text_ndef(uint8_t *buff, uint32_t size, const uint8_t *data,
-                           size_t data_length)
+                           size_t data_length, uint32_t *out_length)
 {
     int err;
     uint32_t ndef_size = nfc_t4t_ndef_file_msg_size_get(size);
@@ -223,6 +217,8 @@ static int build_text_ndef(uint8_t *buff, uint32_t size, const uint8_t *data,
 		return err;
 	}
 
+    *out_length = ndef_size;
+
     return 0;
 }
 
@@ -243,12 +239,14 @@ static int nfctest_send_data(const uint8_t *data, size_t data_length)
     memset(m_ndef_msg_buf, 0, sizeof(m_ndef_msg_buf));
 
     size_t size_in = sizeof(m_ndef_msg_buf);
+    uint32_t encoded_len = 0;
 
-    if (build_text_ndef(m_ndef_msg_buf, size_in, data, data_length) < 0)
+    if (build_text_ndef(m_ndef_msg_buf, size_in, data, data_length, &encoded_len) < 0)
     {
         LOG_ERR("Failed to build NDEF, cannot encode message");
         return -EIO;
     }
+    m_ndef_len = encoded_len;
 
     if (nfc_t4t_ndef_staticpayload_set(m_ndef_msg_buf, m_ndef_len) < 0)
     {
@@ -298,6 +296,7 @@ static int nfctest_receive_data(const uint8_t *data, size_t *data_length)
     int err;
 
     memset(m_ndef_msg_buf, 0, sizeof(m_ndef_msg_buf));
+    m_ndef_len = sizeof(m_ndef_msg_buf);
 
     if (nfc_t4t_ndef_rwpayload_set(m_ndef_msg_buf, m_ndef_len) < 0)
     {
