@@ -9,8 +9,8 @@ static int cmd_nfctest(const struct shell *sh, size_t argc, char **argv)
     int mode;
     int ret;
 
-    uint8_t resp_buf[NFCTEST_PAYLOAD_MAX] = {0};
-    size_t resp_len = 0;
+    uint8_t ndef_text_buf[NFCTEST_PAYLOAD_MAX] = {0};
+    size_t ndef_text_len = 0;
 
     if (argc < 2)
     {
@@ -42,28 +42,28 @@ static int cmd_nfctest(const struct shell *sh, size_t argc, char **argv)
             return -EINVAL;
         }
 
-        resp_len = strlen(argv[2]);
-        if (resp_len >= NFCTEST_PAYLOAD_MAX)
+        ndef_text_len = strlen(argv[2]);
+        if (ndef_text_len >= NFCTEST_PAYLOAD_MAX)
         {
             shell_print(sh, "Text too long (max %d)", NFCTEST_PAYLOAD_MAX - 1);
             return -EINVAL;
         }
 
-        memcpy(resp_buf, argv[2], resp_len);
-        resp_buf[resp_len] = '\0';
+        memcpy(ndef_text_buf, argv[2], ndef_text_len);
+        ndef_text_buf[ndef_text_len] = '\0';
 
-        shell_print(sh, "NFC text set to: %s", resp_buf);
+        shell_print(sh, "NFC text set to: %s", ndef_text_buf);
     }
 
     shell_print(sh, "Starting NFC test mode %d", mode);
 
-    ret = nfctest(mode, resp_buf, &resp_len);
+    ret = nfctest(mode, ndef_text_buf, &ndef_text_len);
 
     if (ret == 0)
     {
         if (mode == 2)
         {
-            shell_print(sh, "NFC RX TEXT: %s", resp_buf);
+            shell_print(sh, "NFC RX TEXT: %s", ndef_text_buf);
         }
 
         shell_print(sh, "OK");
