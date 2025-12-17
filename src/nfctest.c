@@ -13,32 +13,35 @@ K_MUTEX_DEFINE(nfc_lock);
 K_CONDVAR_DEFINE(nfc_read_cv);
 K_CONDVAR_DEFINE(nfc_write_cv);
 
-static bool ndef_read_done;
-static bool ndef_write_done;
+static bool ndef_operation_done;
 
 static bool field_off;
-
-static const uint8_t en_code[] = {'e', 'n'};
 
 static uint8_t m_ndef_msg_buf[NDEF_MSG_BUF_SIZE];
 static uint32_t m_ndef_len = NDEF_MSG_BUF_SIZE;
 
-static uint8_t nfc_test_rx_buf[NFC_TEST_RX_MAX];
-static size_t  nfc_test_rx_len;
+typedef enum {
+    NDEF_OP_NONE,
+    NDEF_TEST_READ,
+    NDEF_TEST_WRITE
+} ndef_op;
 
-/* Handle incoming NDEF write with a TEXT record */
-static int handle_ndef_write_text_record(const uint8_t *data, size_t data_length)
+static ndef_op current_op = NDEF_OP_NONE;
+
+/* Parse a TEXT NDEF record written by an NFC reader/writer (e.g. a smartphone) and extract its payload */
+static int handle_ndef_text_record(const uint8_t *data, size_t data_length, uint8_t *payload_buf,
+                                         size_t *payload_len)
 {
     int err;
 
-    if (data_length <= 2)
+    if (!data || data_length <= 2)
     {
         LOG_WRN("NDEF data too short");
         return -EINVAL;
     }
 
-    /* Skip NLEN bytes */
-    const uint8_t *ndef_msg_buff = data + 2;
+    /* Skip NLEN (2 bytes) */
+    const uint8_t *ndef_msg_buf = data + 2;
     uint32_t ndef_msg_len = data_length - 2;
 
     struct nfc_ndef_bin_payload_desc bin_payload;
@@ -49,59 +52,59 @@ static int handle_ndef_write_text_record(const uint8_t *data, size_t data_length
     err = nfc_ndef_record_parse(&bin_payload,
                                 &record,
                                 &record_location,
-                                ndef_msg_buff,
+                                ndef_msg_buf,
                                 &ndef_msg_len);
     if (err)
     {
-        LOG_ERR("Record parse failed, err: %d", err);
+        LOG_ERR("NDEF record parse failed (%d)", err);
         return err;
     }
 
-    /* Ensure record is a TEXT record */
+    /* Verify TEXT record */
     if (record.tnf != TNF_WELL_KNOWN ||
         record.type_length != 1 ||
         record.type[0] != 'T')
     {
-
         LOG_WRN("Not a TEXT record");
         return -ENOTSUP;
     }
 
-    /* Get TEXT payload */
-    const uint8_t *payload = bin_payload.payload;
-    uint32_t payload_len = bin_payload.payload_length;
-
-    if (payload_len < 1)
+    /* Validate payload */
+    if (bin_payload.payload_length < 1)
     {
         LOG_ERR("Invalid TEXT payload length");
         return -EINVAL;
     }
 
-    /* Extract language code length from status byte */
+    const uint8_t *payload = bin_payload.payload;
+    uint32_t payload_length = bin_payload.payload_length;
+
+    /* Status byte */
     uint8_t status = payload[0];
     uint8_t lang_len = status & 0x3F;
 
-    if (payload_len < (1 + lang_len))
+    if (payload_length < (1 + lang_len))
     {
-        LOG_ERR("Invalid language length");
+        LOG_ERR("Invalid language code length");
         return -EINVAL;
     }
 
-    /* Extract text */
     const uint8_t *text = &payload[1 + lang_len];
-    uint32_t text_len = payload_len - 1 - lang_len;
+    uint32_t text_len = payload_length - 1 - lang_len;
 
-    LOG_INF("TEXT RECORD RECEIVED");
-
-    if (text_len >= NFC_TEST_RX_MAX)
+    if (!payload_buf || !payload_len)
     {
-        text_len = NFC_TEST_RX_MAX - 1;
+        LOG_ERR("RX buffer not initialized");
+        return -EINVAL;
     }
 
-    /* Copy received text to RX buffer and null-terminate */
-    memcpy(nfc_test_rx_buf, text, text_len);
-    nfc_test_rx_buf[text_len] = '\0';
-    nfc_test_rx_len = text_len;
+    uint32_t copy_len = MIN(text_len, NFCTEST_PAYLOAD_MAX - 1);
+
+    memcpy(payload_buf, text, copy_len);
+    payload_buf[copy_len] = '\0';
+    *payload_len = copy_len;
+
+    LOG_INF("NFC RX TEXT: %s", payload_buf);
 
     return 0;
 }
@@ -130,7 +133,11 @@ static void nfc_t4t_callback(void *context,
 
         case NFC_T4T_EVENT_FIELD_OFF:
             LOG_INF("NFC field lost: phone moved away");
-            field_off = true;
+            if (ndef_operation_done)
+            {
+                field_off = true;
+            }
+            
             k_condvar_signal(&nfc_read_cv);
             k_condvar_signal(&nfc_write_cv);
             break;
@@ -138,8 +145,12 @@ static void nfc_t4t_callback(void *context,
         case NFC_T4T_EVENT_NDEF_READ:
             LOG_INF("NDEF message read, length: %zu", data_length);
 
-            ndef_read_done = true;
-            k_condvar_signal(&nfc_read_cv);
+
+            if (current_op == NDEF_TEST_READ)
+            {
+                ndef_operation_done = true;
+                k_condvar_signal(&nfc_read_cv);
+            }
             break;
 
         case NFC_T4T_EVENT_NDEF_UPDATED:
@@ -151,8 +162,12 @@ static void nfc_t4t_callback(void *context,
                 break;
             }
 
-            ndef_write_done = true;
-            k_condvar_signal(&nfc_write_cv);
+            if (current_op == NDEF_TEST_WRITE)
+            {
+                ndef_operation_done = true;
+
+                k_condvar_signal(&nfc_write_cv);
+            }
 
             break;
         
@@ -172,6 +187,7 @@ static int build_text_ndef(uint8_t *buff, uint32_t size, const uint8_t *data,
 {
     int err;
     uint32_t ndef_size = nfc_t4t_ndef_file_msg_size_get(size);
+    const uint8_t en_code[] = {'e', 'n'};
 
     NFC_NDEF_TEXT_RECORD_DESC_DEF(text_record,
                     UTF_8,
@@ -251,10 +267,11 @@ static int nfctest_send_data(const uint8_t *data, size_t data_length)
 
     /* Wait for NDEF read event from callback */
     k_mutex_lock(&nfc_lock, K_FOREVER); //change K_FOREVER
-    ndef_read_done = false;
+    current_op = NDEF_TEST_READ;
+    ndef_operation_done = false;
     field_off = false;
 
-    while (!ndef_read_done)
+    while (!ndef_operation_done)
     {
         k_condvar_wait(&nfc_read_cv, &nfc_lock, K_FOREVER);
     }
@@ -264,6 +281,7 @@ static int nfctest_send_data(const uint8_t *data, size_t data_length)
         k_condvar_wait(&nfc_read_cv, &nfc_lock, K_FOREVER);
     }
 
+    current_op = NDEF_OP_NONE;
     k_mutex_unlock(&nfc_lock);
 
     nfc_t4t_emulation_stop();
@@ -276,7 +294,7 @@ static int nfctest_send_data(const uint8_t *data, size_t data_length)
  * Start NFC tag emulation in read/write mode.
  * Wait until a phone writes a new NDEF message.
  */
-static int nfctest_receive_data(const uint8_t *data, size_t data_length)
+static int nfctest_receive_data(const uint8_t *data, size_t *data_length)
 {   
     int err;
 
@@ -298,26 +316,17 @@ static int nfctest_receive_data(const uint8_t *data, size_t data_length)
 
     /* Wait for NDEF write event from callback*/
     k_mutex_lock(&nfc_lock, K_FOREVER); //change K_FOREVER
-    ndef_write_done = false;
+    current_op = NDEF_TEST_WRITE;
+    ndef_operation_done = false;
     field_off = false;
 
-    while (!ndef_write_done)
+    while (!ndef_operation_done)
     {
         err = k_condvar_wait(&nfc_write_cv, &nfc_lock, K_FOREVER);
-        if (err)
-        {
-            k_mutex_unlock(&nfc_lock);
-            return err;
-        }
+        if (err) { k_mutex_unlock(&nfc_lock); return err; }
     }
 
-    if (err == -EAGAIN)
-    {
-        LOG_WRN("Waiting for NDEF write failed");
-    }
-    int parse_ret;
-
-    parse_ret = handle_ndef_write_text_record(m_ndef_msg_buf, m_ndef_len);
+    //k_msleep(300);
 
     while (!field_off)
     {
@@ -329,10 +338,17 @@ static int nfctest_receive_data(const uint8_t *data, size_t data_length)
         }
     }
 
+    current_op = NDEF_OP_NONE;
     k_mutex_unlock(&nfc_lock);
 
     nfc_t4t_emulation_stop();
     LOG_INF("NDEF write done, emulation stopped");
+
+    int parse_ret = 0;
+
+    parse_ret = handle_ndef_text_record(m_ndef_msg_buf, m_ndef_len, (uint8_t *)data,
+                                          data_length);
+    
 
     if (parse_ret < 0)
     {
@@ -347,39 +363,41 @@ int nfctest_setup(void)
     return nfc_t4t_setup(nfc_t4t_callback, NULL);
 }
 
-int nfctest(int mode, const uint8_t *data, size_t data_length)
+int nfctest(int mode, uint8_t *data, size_t *data_length)
 {
+    if (!data || !data_length)
+    {
+        return -EINVAL;
+    }
+
     if (mode == 1)
     {
         LOG_INF("NFCTEST MODE 1 START");
-        return nfctest_send_data(data, data_length);
+
+        if (*data_length == 0)
+        {
+            LOG_WRN("No data to send");
+            return -EINVAL;
+        }
+
+        return nfctest_send_data(data, *data_length);
     }
     else if (mode == 2)
     {
         LOG_INF("NFCTEST MODE 2 START");
-        return nfctest_receive_data(data, data_length);
-    }
-    else
-    {
-        LOG_ERR("Invalid mode");
-        return -EINVAL;
-    }
-}
 
-int nfctest_get_rx_text(uint8_t *buf, size_t buf_size, size_t *out_len)
-{
-    if (nfc_test_rx_len == 0)
-    {
-        return -ENOENT;
+        memset(data, 0, NFCTEST_PAYLOAD_MAX);
+        *data_length = 0;
+
+        int ret = nfctest_receive_data(data, data_length);
+
+        if (ret == 0)
+        {
+            LOG_INF("RX PAYLOAD: %s", data);
+        }
+
+        return ret;
     }
 
-    if (buf_size < nfc_test_rx_len + 1)
-    {
-        return -ENOBUFS;
-    }
-
-    memcpy(buf, nfc_test_rx_buf, nfc_test_rx_len + 1);
-    *out_len = nfc_test_rx_len;
-
-    return 0;
+    return -EINVAL;
 }
