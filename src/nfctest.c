@@ -14,13 +14,13 @@ K_CONDVAR_DEFINE(nfc_read_cv);
 K_CONDVAR_DEFINE(nfc_write_cv);
 
 static bool ndef_operation_done;
-
 static bool field_off;
 
 static uint8_t m_ndef_msg_buf[NDEF_MSG_BUF_SIZE];
 static uint32_t m_ndef_len = NDEF_MSG_BUF_SIZE;
 
-typedef enum {
+typedef enum
+{
     NDEF_OP_NONE,
     NDEF_TEST_READ,
     NDEF_TEST_WRITE
@@ -79,7 +79,6 @@ static int handle_ndef_text_record(const uint8_t *data, size_t data_length, uint
     const uint8_t *payload = bin_payload.payload;
     uint32_t payload_length = bin_payload.payload_length;
 
-    /* Status byte */
     uint8_t status = payload[0];
     uint8_t lang_len = status & 0x3F;
 
@@ -326,8 +325,6 @@ static int nfctest_receive_data(const uint8_t *data, size_t *data_length)
         if (err) { k_mutex_unlock(&nfc_lock); return err; }
     }
 
-    //k_msleep(300);
-
     while (!field_off)
     {
         err = k_condvar_wait(&nfc_write_cv, &nfc_lock, K_FOREVER);
@@ -349,7 +346,6 @@ static int nfctest_receive_data(const uint8_t *data, size_t *data_length)
     parse_ret = handle_ndef_text_record(m_ndef_msg_buf, m_ndef_len, (uint8_t *)data,
                                           data_length);
     
-
     if (parse_ret < 0)
     {
         return parse_ret;

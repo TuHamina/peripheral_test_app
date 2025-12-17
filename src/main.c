@@ -80,21 +80,6 @@ SHELL_CMD_REGISTER(nfctest, NULL,
                    "NFC test command",
                    cmd_nfctest);
 
-static int cmd_demo_params(const struct shell *sh, size_t argc, char **argv)
-{
-	shell_print(sh, "argc = %zd", argc);
-	for (size_t cnt = 0; cnt < argc; cnt++)
-    {
-		shell_print(sh, "  argv[%zd] = %s", cnt, argv[cnt]);
-	}
-
-	return 0;
-}
-
-SHELL_CMD_REGISTER(params, NULL,
-                   "Print params command",
-                   cmd_demo_params);
-
 int main(void)
 {
     if (nfctest_setup() < 0)
@@ -105,20 +90,4 @@ int main(void)
 
     LOG_INF("NFC ready\n");
 }
-
-#if DT_NODE_HAS_COMPAT(DT_CHOSEN(zephyr_shell_uart), zephyr_cdc_acm_uart)
-	const struct device *dev;
-	uint32_t dtr = 0;
-
-	dev = DEVICE_DT_GET(DT_CHOSEN(zephyr_shell_uart));
-	if (!device_is_ready(dev) || usb_enable(NULL)) {
-		return 0;
-	}
-
-	while (!dtr) {
-		uart_line_ctrl_get(dev, UART_LINE_CTRL_DTR, &dtr);
-		k_sleep(K_MSEC(100));
-	}
-#endif
-
 
