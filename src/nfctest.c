@@ -13,8 +13,8 @@ K_MUTEX_DEFINE(nfc_lock);
 K_CONDVAR_DEFINE(nfc_read_cv);
 K_CONDVAR_DEFINE(nfc_write_cv);
 
-static bool ndef_operation_done;
-static bool field_off;
+static bool m_ndef_operation_done;
+static bool m_field_off;
 
 static uint8_t m_ndef_msg_buf[NDEF_MSG_BUF_SIZE];
 static uint32_t m_ndef_len = NDEF_MSG_BUF_SIZE;
@@ -26,7 +26,7 @@ typedef enum
     NDEF_TEST_WRITE
 } ndef_op;
 
-static ndef_op current_op = NDEF_OP_NONE;
+static ndef_op m_current_op = NDEF_OP_NONE;
 
 /* Parse a TEXT NDEF record written by an NFC reader/writer (e.g. a smartphone) and extract its payload */
 static int handle_ndef_text_record(const uint8_t *data, size_t data_length, uint8_t *payload_buf,
@@ -126,9 +126,9 @@ static void nfc_t4t_callback(void *context,
 
         case NFC_T4T_EVENT_FIELD_OFF:
             LOG_INF("NFC field lost: phone moved away");
-            if (ndef_operation_done)
+            if (m_ndef_operation_done)
             {
-                field_off = true;
+                m_field_off = true;
             }
             
             k_condvar_signal(&nfc_read_cv);
@@ -139,9 +139,9 @@ static void nfc_t4t_callback(void *context,
             LOG_INF("NDEF message read, length: %zu", data_length);
 
 
-            if (current_op == NDEF_TEST_READ)
+            if (m_current_op == NDEF_TEST_READ)
             {
-                ndef_operation_done = true;
+                m_ndef_operation_done = true;
                 k_condvar_signal(&nfc_read_cv);
             }
             break;
@@ -155,9 +155,9 @@ static void nfc_t4t_callback(void *context,
                 break;
             }
 
-            if (current_op == NDEF_TEST_WRITE)
+            if (m_current_op == NDEF_TEST_WRITE)
             {
-                ndef_operation_done = true;
+                m_ndef_operation_done = true;
 
                 k_condvar_signal(&nfc_write_cv);
             }
@@ -264,21 +264,21 @@ static int nfctest_send_data(const uint8_t *data, size_t data_length)
 
     /* Wait for NDEF read event from callback */
     k_mutex_lock(&nfc_lock, K_FOREVER); //change K_FOREVER
-    current_op = NDEF_TEST_READ;
-    ndef_operation_done = false;
-    field_off = false;
+    m_current_op = NDEF_TEST_READ;
+    m_ndef_operation_done = false;
+    m_field_off = false;
 
-    while (!ndef_operation_done)
+    while (!m_ndef_operation_done)
     {
         k_condvar_wait(&nfc_read_cv, &nfc_lock, K_FOREVER);
     }
 
-    while (!field_off)
+    while (!m_field_off)
     {
         k_condvar_wait(&nfc_read_cv, &nfc_lock, K_FOREVER);
     }
 
-    current_op = NDEF_OP_NONE;
+    m_current_op = NDEF_OP_NONE;
     k_mutex_unlock(&nfc_lock);
 
     nfc_t4t_emulation_stop();
@@ -314,17 +314,21 @@ static int nfctest_receive_data(const uint8_t *data, size_t *data_length)
 
     /* Wait for NDEF write event from callback*/
     k_mutex_lock(&nfc_lock, K_FOREVER); //change K_FOREVER
-    current_op = NDEF_TEST_WRITE;
-    ndef_operation_done = false;
-    field_off = false;
+    m_current_op = NDEF_TEST_WRITE;
+    m_ndef_operation_done = false;
+    m_field_off = false;
 
-    while (!ndef_operation_done)
+    while (!m_ndef_operation_done)
     {
         err = k_condvar_wait(&nfc_write_cv, &nfc_lock, K_FOREVER);
-        if (err) { k_mutex_unlock(&nfc_lock); return err; }
+        if (err)
+        { 
+            k_mutex_unlock(&nfc_lock);
+            return err;
+        }
     }
 
-    while (!field_off)
+    while (!m_field_off)
     {
         err = k_condvar_wait(&nfc_write_cv, &nfc_lock, K_FOREVER);
         if (err)
@@ -334,20 +338,18 @@ static int nfctest_receive_data(const uint8_t *data, size_t *data_length)
         }
     }
 
-    current_op = NDEF_OP_NONE;
+    m_current_op = NDEF_OP_NONE;
     k_mutex_unlock(&nfc_lock);
 
     nfc_t4t_emulation_stop();
     LOG_INF("NDEF write done, emulation stopped");
 
-    int parse_ret = 0;
-
-    parse_ret = handle_ndef_text_record(m_ndef_msg_buf, m_ndef_len, (uint8_t *)data,
+    err = handle_ndef_text_record(m_ndef_msg_buf, m_ndef_len, (uint8_t *)data,
                                           data_length);
     
-    if (parse_ret < 0)
+    if (err < 0)
     {
-        return parse_ret;
+        return err;
     }
 
     return 0;

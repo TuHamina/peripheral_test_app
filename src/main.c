@@ -14,9 +14,9 @@ static int cmd_nfctest(const struct shell *sh, size_t argc, char **argv)
 
     if (argc < 2)
     {
-        shell_print(sh, "Usage: nfctest <mode>");
-        shell_print(sh, "mode 1: send (read-only)");
-        shell_print(sh, "mode 2: receive (read/write)");
+        shell_print(sh, "nfctest <mode> [<payload>]");
+        shell_print(sh, "mode 1: set <payload> as tag value. Wait for tag to be read by NFC reader.");
+        shell_print(sh, "mode 2: set empty tag. Wait for tag to be written by NFC reader.");
         return -1;
     }
     
@@ -84,10 +84,10 @@ int main(void)
 {
     if (nfctest_setup() < 0)
     {
-            LOG_ERR("NFC setup failed. Cannot setup NFC T2T library\n");
+            LOG_ERR("NFC setup failed");
             return -1;
     }
 
-    LOG_INF("NFC ready\n");
+    LOG_INF("NFC ready");
 }
 
