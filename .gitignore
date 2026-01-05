@@ -4,5 +4,6 @@
 
 # build
 /build*/
+/build_crc_test*/
 
 .vscode/
