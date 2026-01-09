@@ -2,6 +2,7 @@
 #define CRC32_H
 
 #include <stdint.h>
+#include <stddef.h>
 
 void BZ2_initialise_crc (uint32_t *crc);
 

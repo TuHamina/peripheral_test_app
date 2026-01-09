@@ -1,6 +1,8 @@
 #include <zephyr/shell/shell.h>
 #include <zephyr/drivers/uart.h>
+#include <stdlib.h>
 #include "nfctest.h"
+#include "crc32_test.h"
 
 LOG_MODULE_REGISTER(shell_nfctest);
 
@@ -80,6 +82,66 @@ SHELL_CMD_REGISTER(nfctest, NULL,
                    "NFC test command",
                    cmd_nfctest);
 
+static int cmd_crc32(const struct shell *sh, size_t argc, char **argv)
+{
+    uintptr_t address;
+    size_t words_len;
+    int mode;
+
+    if (argc < 4)
+    {
+        shell_print(sh, "Usage: crc32 <address> <words> <mode>");
+        return -1;
+    }
+
+    if (argv[2][0] == '-') 
+    {
+        shell_print(sh, "Word count must be positive");
+        return -EINVAL;
+    }
+
+    address   = strtoul(argv[1], NULL, 0);
+    words_len = strtoul(argv[2], NULL, 0);
+
+    if (strcmp(argv[3], "0") == 0)
+    {
+        mode = 0;
+    }
+    else if (strcmp(argv[3], "1") == 0)
+    {
+        mode = 1;
+    } 
+    else
+    {
+        shell_print(sh, "Invalid mode, use 0 or 1");
+        return -EINVAL;
+    }
+
+    struct crc_result r = crc32_words_check(address, words_len, mode);
+
+    if (r.status == CRC_INVALID) 
+    {
+        shell_print(sh, "Invalid parameters");
+        return -EINVAL;
+    }
+
+    if (mode == 0) 
+    {
+        shell_print(sh, "%08X", r.crc);
+        return 0;
+    }
+
+    shell_print(sh, "%08X %s",
+                r.crc,
+                (r.status == CRC_OK) ? "OK" : "FAIL");
+
+    return 0;
+}
+
+SHELL_CMD_REGISTER(crc32, NULL,
+                   "crc32 test command",
+                   cmd_crc32);
+
 int main(void)
 {
     if (nfctest_setup() < 0)
@@ -90,4 +152,3 @@ int main(void)
 
     LOG_INF("NFC ready");
 }
-
