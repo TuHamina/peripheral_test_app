@@ -75,6 +75,7 @@ struct crc_result crc32_words_check(uint32_t address, size_t words_len, int mode
         }
         
         res.crc = stored_crc; 
+        res.crc_ref = crc;
         
         return res;
     }

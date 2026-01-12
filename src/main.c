@@ -131,8 +131,8 @@ static int cmd_crc32(const struct shell *sh, size_t argc, char **argv)
         return 0;
     }
 
-    shell_print(sh, "%08X %s",
-                r.crc,
+    shell_print(sh, "%08X %08X %s",
+                r.crc, r.crc_ref,
                 (r.status == CRC_OK) ? "OK" : "FAIL");
 
     return 0;

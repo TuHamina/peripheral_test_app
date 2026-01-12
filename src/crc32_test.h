@@ -14,6 +14,7 @@ enum crc_status
 struct crc_result 
 {
     uint32_t crc;
+    uint32_t crc_ref;
     enum crc_status status;
 };
 
