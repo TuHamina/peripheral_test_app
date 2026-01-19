@@ -1,5 +1,4 @@
 #include <zephyr/ztest.h>
-#include <zephyr/sys/crc.h>
 
 #include "crc32.h"
 
