@@ -5,9 +5,4 @@ project(peripheral_test_app)
 
 target_include_directories(app PRIVATE src)
 
-target_sources(app PRIVATE
-    src/main.c
-    src/nfctest.c
-    src/crc32.c
-    src/crc32_test.c
-)
+add_subdirectory(src)

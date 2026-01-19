@@ -5,7 +5,7 @@
 #include <nfc_t4t_lib.h>
 #include <nfc/ndef/msg_parser.h>
 #include <zephyr/logging/log.h>
-#include "nfctest.h"
+#include "nfc_test.h"
 
 LOG_MODULE_REGISTER(nfctest);
 
