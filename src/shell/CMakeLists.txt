@@ -1,5 +1,5 @@
 target_sources(app PRIVATE
-    uart_shell.c
+    shell.c
 )
 
 target_include_directories(app PRIVATE
