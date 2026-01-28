@@ -3,49 +3,54 @@
 #include <stdlib.h>
 #include "nfc_test.h"
 #include "crc32_test.h"
+#include "nfc_test_field_detect.h"
 
-static int cmd_nfctest(const struct shell *sh, size_t argc, char **argv)
+int cmd_nfctest(const struct shell *sh, size_t argc, char **argv)
 {
-    int mode;
-    int ret;
+    int mode = -1;
+    int ret = 0;
 
     uint8_t ndef_text_buf[NFCTEST_PAYLOAD_MAX] = {0};
     size_t ndef_text_len = 0;
 
     if (argc < 2)
     {
-        shell_print(sh, "nfctest <mode> [<payload>]");
-        shell_print(sh, "mode 1: set <payload> as tag value. Wait for tag to be read by NFC reader.");
-        shell_print(sh, "mode 2: set empty tag. Wait for tag to be written by NFC reader.");
-        return -1;
-    }
-    
-    if (strcmp(argv[1], "1") == 0)
-    {
-        mode = 1;
-    }
-    else if (strcmp(argv[1], "2") == 0)
-    {
-        mode = 2;
-    } 
-    else
-    {
-        shell_print(sh, "Invalid mode, use 1 or 2");
+        shell_print(sh, "Usage: nfctest <mode> [args]");
+        shell_print(sh, "  mode 1: set <payload> as tag value");
+        shell_print(sh, "  mode 2: set empty tag, wait for write");
+        shell_print(sh, "  mode 3: NFCT sense on/off");
+        shell_print(sh, "  mode 4: field presence test");
         return -EINVAL;
     }
 
-    if (mode == 1)
+    if (strcmp(argv[1], "1") == 0)
+        mode = 1;
+    else if (strcmp(argv[1], "2") == 0)
+        mode = 2;
+    else if (strcmp(argv[1], "3") == 0)
+        mode = 3;
+    else if (strcmp(argv[1], "4") == 0)
+        mode = 4;
+    else
     {
+        shell_print(sh, "Invalid mode, use 1–4");
+        return -EINVAL;
+    }
+
+    switch (mode)
+    {
+    case 1: /* Read mode */
         if (argc < 3)
         {
-            shell_print(sh, "Missing text for send mode");
+            shell_print(sh, "Missing text for mode 1");
             return -EINVAL;
         }
 
         ndef_text_len = strlen(argv[2]);
         if (ndef_text_len >= NFCTEST_PAYLOAD_MAX)
         {
-            shell_print(sh, "Text too long (max %d)", NFCTEST_PAYLOAD_MAX - 1);
+            shell_print(sh, "Text too long (max %d)",
+                        NFCTEST_PAYLOAD_MAX - 1);
             return -EINVAL;
         }
 
@@ -53,26 +58,76 @@ static int cmd_nfctest(const struct shell *sh, size_t argc, char **argv)
         ndef_text_buf[ndef_text_len] = '\0';
 
         shell_print(sh, "NFC text set to: %s", ndef_text_buf);
+        break;
+
+    case 2: /* Write mode */
+        break;
+
+    case 3: /* Sense (Activate/Disable) on/off */
+    {
+        int submode;
+
+        if (argc < 3)
+        {
+            shell_print(sh, "Usage: nfctest 3 <submode>");
+            shell_print(sh, "  submode 1 = Sense ON");
+            shell_print(sh, "  submode 2 = Sense OFF");
+            return -EINVAL;
+        }
+
+        if (strcmp(argv[2], "1") == 0)
+            submode = 1;
+        else if (strcmp(argv[2], "2") == 0)
+            submode = 2;
+        else
+        {
+            shell_print(sh, "Invalid submode, use 1 or 2");
+            return -EINVAL;
+        }
+
+        shell_print(sh,
+            "Starting NFC test mode 3, submode %d",
+            submode);
+
+        ret = nfct_sense_on_off(submode);
+
+        shell_print(sh, ret ? "FAIL (%d)" : "OK", ret);
+        return ret;
+    }
+
+    case 4: /* Field presence test */
+    {
+        struct nfct_field_info info;
+
+        shell_print(sh, "Starting NFC test mode 4");
+
+        ret = check_field_presence(1000, &info);
+
+        shell_print(sh, "check_field_presence ret=%d", ret);
+        shell_print(sh, "last_fp_seen = 0x%08X", info.last_fp_seen);
+        shell_print(sh, "FIELDPRESENT = 0x%08X", info.fieldpresent);
+        shell_print(sh, "NFCTAGSTATE  = 0x%08X", info.nfctagstate);
+        shell_print(sh, "FREQ RAW     = %u", info.freq_raw);
+        shell_print(sh, "FREQ (Hz)    = %u", info.freq_hz);
+
+        shell_print(sh, ret ? "FAIL (%d)" : "OK", ret);
+        return ret;
+    }
+
+    default:
+        return -EINVAL;
     }
 
     shell_print(sh, "Starting NFC test mode %d", mode);
 
     ret = nfctest(mode, ndef_text_buf, &ndef_text_len);
 
-    if (ret == 0)
+    if (ret == 0 && mode == 2)
     {
-        if (mode == 2)
-        {
-            shell_print(sh, "NFC RX TEXT: %s", ndef_text_buf);
-        }
-
-        shell_print(sh, "OK");
-    }
-    else
-    {
-        shell_print(sh, "FAIL (%d)", ret);
+        shell_print(sh, "NFC RX TEXT: %s", ndef_text_buf);
     }
 
+    shell_print(sh, ret ? "FAIL (%d)" : "OK", ret);
     return ret;
 }
 
