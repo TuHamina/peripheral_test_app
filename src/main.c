@@ -7,5 +7,4 @@ LOG_MODULE_REGISTER(shell_nfctest);
 
 int main(void)
 {
-    LOG_INF("Boot OK. Run:");
 }

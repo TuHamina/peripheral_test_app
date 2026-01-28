@@ -399,7 +399,8 @@ static int nfctest_receive_data(const uint8_t *data, size_t *data_length)
 
 static int nfctest_t4t_setup(void)
 {
-    if (nfc_t4t_initialized) {
+    if (nfc_t4t_initialized) 
+    {
         return 0;
     }
 
@@ -433,7 +434,8 @@ int nfctest(int mode, uint8_t *data, size_t *data_length)
         }
 
         int err = nfctest_t4t_setup();
-        if (err < 0) {
+        if (err < 0) 
+        {
             return err;
         }
 
@@ -447,7 +449,8 @@ int nfctest(int mode, uint8_t *data, size_t *data_length)
         *data_length = 0;
 
         int err = nfctest_t4t_setup();
-        if (err < 0) {
+        if (err < 0) 
+        {
             return err;
         }
 
