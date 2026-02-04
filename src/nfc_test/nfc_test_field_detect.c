@@ -23,27 +23,26 @@ LOG_MODULE_REGISTER(nfctest_nrfx_test, LOG_LEVEL_INF);
 
 int nfct_sense_apply_submode(int submode)
 {
-    NRF_NFCT->PADCONFIG;
     NRF_NFCT->TASKS_SENSE = 1;
     LOG_INF("NFCT SENSE ON");
     LOG_INF("NFCTAGSTATE=0x%08X", (uint32_t)NRF_NFCT->NFCTAGSTATE);
 
     switch (submode)
     {
-    case NFCT_SENSE_ACTIVATE:
-        NRF_NFCT->TASKS_ACTIVATE = 1;
-        LOG_INF("After ACTIVATE: NFCTAGSTATE=0x%08X",
-                (uint32_t)NRF_NFCT->NFCTAGSTATE);
-        break;
+        case NFCT_SENSE_ACTIVATE:
+            NRF_NFCT->TASKS_ACTIVATE = 1;
+            LOG_INF("After ACTIVATE: NFCTAGSTATE=0x%08X",
+                    (uint32_t)NRF_NFCT->NFCTAGSTATE);
+            break;
 
-    case NFCT_SENSE_DISABLE:
-        NRF_NFCT->TASKS_DISABLE = 1;
-        LOG_INF("After DISABLE: NFCTAGSTATE=0x%08X",
-                (uint32_t)NRF_NFCT->NFCTAGSTATE);
-        break;
+        case NFCT_SENSE_DISABLE:
+            NRF_NFCT->TASKS_DISABLE = 1;
+            LOG_INF("After DISABLE: NFCTAGSTATE=0x%08X",
+                    (uint32_t)NRF_NFCT->NFCTAGSTATE);
+            break;
 
-    default:
-        break;
+        default:
+            break;
     }
 
     return 0;
@@ -53,19 +52,18 @@ int nfct_sense_on_off(int submode)
 {
     switch (submode)
     {
-    case NFCT_SENSE_ACTIVATE:
-    case NFCT_SENSE_DISABLE:
-        return nfct_sense_apply_submode(submode);
+        case NFCT_SENSE_ACTIVATE:
+        case NFCT_SENSE_DISABLE:
+            return nfct_sense_apply_submode(submode);
 
-    default:
-        return -EINVAL;
+        default:
+            return -EINVAL;
     }
 }
 
-int check_field_presence(int timeout_ms,
-                          struct nfct_field_info *info)
+int check_field_presence(uint32_t timeout_ms, struct nfct_field_info *info)
 {
-    int64_t start = k_uptime_get();
+    uint32_t start = k_uptime_get_32();
 
     info->last_fp_seen = 0;
     info->fieldpresent = 0;
@@ -77,18 +75,19 @@ int check_field_presence(int timeout_ms,
 
     while (NRF_NFCT->NFCTAGSTATE == 0) 
     {
-        if ((k_uptime_get() - start) > timeout_ms) 
+        if ((k_uptime_get_32() - start) > timeout_ms) 
         {
             return NFC_FIELD_TIMEOUT;
         }
         k_sleep(K_MSEC(1));
     }
 
-    while (1) {
+    while (1) 
+    {
 
         info->last_fp_seen = NRF_NFCT->FIELDPRESENT;
 
-        if ((k_uptime_get() - start) > timeout_ms) 
+        if ((k_uptime_get_32() - start) > timeout_ms) 
         {
             NFCT_FREQMEASURE_DONE = 0;
             NFCT_FREQMEASURE_START = 0;
@@ -109,14 +108,9 @@ int check_field_presence(int timeout_ms,
     NFCT_FREQMEASURE_DONE = 0;
     NFCT_FREQMEASURE_START = 1;
 
-    while (1) 
-    {
-        if (NFCT_FREQMEASURE_DONE != 0) 
-        {
-            break;
-        }
-        
-        if ((k_uptime_get() - start) > timeout_ms) 
+    while (NFCT_FREQMEASURE_DONE == 0) 
+    { 
+        if ((k_uptime_get_32() - start) > timeout_ms) 
         {
             info->nfctagstate = NRF_NFCT->NFCTAGSTATE;
             return NFC_FIELD_TIMEOUT;
