@@ -19,6 +19,10 @@ static bool m_field_off;
 static uint8_t m_ndef_msg_buf[NDEF_MSG_BUF_SIZE];
 static uint32_t m_ndef_len = NDEF_MSG_BUF_SIZE;
 
+static bool m_nfc_t4t_initialized;
+
+uint32_t timeout_ms = NFCTEST_RW_TIMEOUT_DEFAULT_MS;
+
 typedef enum
 {
     NDEF_OP_NONE,
@@ -222,12 +226,37 @@ static int build_text_ndef(uint8_t *buff, uint32_t size, const uint8_t *data,
     return 0;
 }
 
+static int wait_with_timeout(struct k_condvar *cv,
+                             struct k_mutex *mutex,
+                             volatile bool *condition,
+                             uint32_t timeout_ms)
+{
+    uint32_t start = k_uptime_get_32();
+
+    while (!*condition) 
+    {
+        uint32_t elapsed = k_uptime_get_32() - start;
+
+        if (elapsed >= timeout_ms) 
+        {
+            return -ETIMEDOUT;
+        }
+
+        uint32_t remaining = timeout_ms - elapsed;
+        k_condvar_wait(cv, mutex, K_MSEC(remaining));
+    }
+
+    return 0;
+}
+
 /*
  * Start NFC tag emulation with a static (read-only) payload.
  * Wait until a phone reads the message.
  */
-static int nfctest_send_data(const uint8_t *data, size_t data_length)
+static int nfctest_send_data(const uint8_t *data, size_t data_length, uint32_t timeout_ms)
 {
+    int err;
+
     if (data == NULL || data_length == 0)
     {
         LOG_ERR("No NFC data provided");
@@ -263,19 +292,31 @@ static int nfctest_send_data(const uint8_t *data, size_t data_length)
     LOG_INF("NFC message ready for Read, approach with phone");
 
     /* Wait for NDEF read event from callback */
-    k_mutex_lock(&nfc_lock, K_FOREVER); //change K_FOREVER
+    k_mutex_lock(&nfc_lock, K_FOREVER);
     m_current_op = NDEF_TEST_READ;
     m_ndef_operation_done = false;
     m_field_off = false;
 
-    while (!m_ndef_operation_done)
+    err = wait_with_timeout(&nfc_read_cv,
+                            &nfc_lock,
+                            &m_ndef_operation_done,
+                            timeout_ms);
+    if (err < 0) 
     {
-        k_condvar_wait(&nfc_read_cv, &nfc_lock, K_FOREVER);
+        k_mutex_unlock(&nfc_lock);
+        nfc_t4t_emulation_stop();
+        return err;
     }
 
-    while (!m_field_off)
+    err = wait_with_timeout(&nfc_read_cv,
+                            &nfc_lock,
+                            &m_field_off,
+                            timeout_ms);
+    if (err < 0) 
     {
-        k_condvar_wait(&nfc_read_cv, &nfc_lock, K_FOREVER);
+        k_mutex_unlock(&nfc_lock);
+        nfc_t4t_emulation_stop();
+        return err;
     }
 
     m_current_op = NDEF_OP_NONE;
@@ -291,7 +332,7 @@ static int nfctest_send_data(const uint8_t *data, size_t data_length)
  * Start NFC tag emulation in read/write mode.
  * Wait until a phone writes a new NDEF message.
  */
-static int nfctest_receive_data(const uint8_t *data, size_t *data_length)
+static int nfctest_receive_data(const uint8_t *data, size_t *data_length, uint32_t timeout_ms)
 {   
     int err;
 
@@ -313,29 +354,31 @@ static int nfctest_receive_data(const uint8_t *data, size_t *data_length)
     LOG_INF("NFC message ready for Read/Write, approach with phone");
 
     /* Wait for NDEF write event from callback*/
-    k_mutex_lock(&nfc_lock, K_FOREVER); //change K_FOREVER
+    k_mutex_lock(&nfc_lock, K_FOREVER);
     m_current_op = NDEF_TEST_WRITE;
     m_ndef_operation_done = false;
     m_field_off = false;
 
-    while (!m_ndef_operation_done)
+    err = wait_with_timeout(&nfc_write_cv,
+                            &nfc_lock,
+                            &m_ndef_operation_done,
+                            timeout_ms);
+    if (err < 0) 
     {
-        err = k_condvar_wait(&nfc_write_cv, &nfc_lock, K_FOREVER);
-        if (err)
-        { 
-            k_mutex_unlock(&nfc_lock);
-            return err;
-        }
+        k_mutex_unlock(&nfc_lock);
+        nfc_t4t_emulation_stop();
+        return err;
     }
 
-    while (!m_field_off)
+    err = wait_with_timeout(&nfc_write_cv,
+                            &nfc_lock,
+                            &m_field_off,
+                            timeout_ms);
+    if (err < 0) 
     {
-        err = k_condvar_wait(&nfc_write_cv, &nfc_lock, K_FOREVER);
-        if (err)
-        {
-            k_mutex_unlock(&nfc_lock);
-            return err;
-        }
+        k_mutex_unlock(&nfc_lock);
+        nfc_t4t_emulation_stop();
+        return err;
     }
 
     m_current_op = NDEF_OP_NONE;
@@ -344,8 +387,7 @@ static int nfctest_receive_data(const uint8_t *data, size_t *data_length)
     nfc_t4t_emulation_stop();
     LOG_INF("NDEF write done, emulation stopped");
 
-    err = handle_ndef_text_record(m_ndef_msg_buf, m_ndef_len, (uint8_t *)data,
-                                          data_length);
+    err = handle_ndef_text_record(m_ndef_msg_buf, m_ndef_len, (uint8_t *)data, data_length);
     
     if (err < 0)
     {
@@ -355,12 +397,27 @@ static int nfctest_receive_data(const uint8_t *data, size_t *data_length)
     return 0;
 }
 
-int nfctest_setup(void)
+static int nfctest_t4t_setup(void)
 {
-    return nfc_t4t_setup(nfc_t4t_callback, NULL);
+    if (m_nfc_t4t_initialized) 
+    {
+        return 0;
+    }
+
+    int err = nfc_t4t_setup(nfc_t4t_callback, NULL);
+    if (err < 0) 
+    {
+        LOG_ERR("nfc_t4t_setup failed (%d)", err);
+        return err;
+    }
+
+    m_nfc_t4t_initialized = true;
+    LOG_INF("NFC T4T initialized");
+
+    return 0;
 }
 
-int nfctest(int mode, uint8_t *data, size_t *data_length)
+int nfctest(int mode, uint8_t *data, size_t *data_length, uint32_t timeout_ms)
 {
     if (!data || !data_length)
     {
@@ -377,7 +434,13 @@ int nfctest(int mode, uint8_t *data, size_t *data_length)
             return -EINVAL;
         }
 
-        return nfctest_send_data(data, *data_length);
+        int err = nfctest_t4t_setup();
+        if (err < 0) 
+        {
+            return err;
+        }
+
+        return nfctest_send_data(data, *data_length, timeout_ms);
     }
     else if (mode == 2)
     {
@@ -386,7 +449,13 @@ int nfctest(int mode, uint8_t *data, size_t *data_length)
         memset(data, 0, NFCTEST_PAYLOAD_MAX);
         *data_length = 0;
 
-        int ret = nfctest_receive_data(data, data_length);
+        int err = nfctest_t4t_setup();
+        if (err < 0) 
+        {
+            return err;
+        }
+
+        int ret = nfctest_receive_data(data, data_length, timeout_ms);
 
         if (ret == 0)
         {
