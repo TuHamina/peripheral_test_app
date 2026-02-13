@@ -13,6 +13,20 @@ Currently, the project includes:
 
 ---
 
+## Build Environment
+
+The application was built using:
+
+- **nRF Connect SDK (NCS): v3.2.1**
+- **nRF Connect SDK Toolchain: v3.2.1**
+
+The application was built using the following command:
+
+```bash
+west build -p -b nrf54h20dk/nrf54h20/cpuapp .
+```
+---
+
 ## NFC Test Functionality
 
 The NFC test module provides a shell command (`nfctest`) that allows interacting
@@ -147,3 +161,4 @@ after the data region.
   validation.
 - The implementation assumes the memory region is accessible and stable during
   the operation.
+
