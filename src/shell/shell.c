@@ -4,6 +4,8 @@
 #include "nfc_test.h"
 #include "crc32_test.h"
 #include "nfc_test_field_detect.h"
+#include "adc_app.h"
+#include "adc_test.h"
 
 #define NFCTEST_FIELD_TIMEOUT_DEFAULT_MS 1000
 
@@ -267,3 +269,49 @@ static int cmd_crc32(const struct shell *sh, size_t argc, char **argv)
 SHELL_CMD_REGISTER(crc32, NULL,
                    "crc32 test command",
                    cmd_crc32);
+
+static int cmd_adc(const struct shell *sh, size_t argc, char **argv)
+{
+    int32_t mv;
+    int err;
+
+    if (argc != 2 || strcmp(argv[1], "read") != 0) 
+    {
+        shell_print(sh, "Usage: adc read");
+        return -EINVAL;
+    }
+
+    err = adc_app_read_mv(&mv);
+    if (err) 
+    {
+        shell_print(sh, "ADC error: %d", err);
+        return err;
+    }
+
+    shell_print(sh, "ADC: %d mV", mv);
+    return 0;
+}
+
+SHELL_CMD_REGISTER(adc, NULL,
+                   "ADC commands",
+                   cmd_adc);
+
+static int cmd_adc_test(const struct shell *sh, size_t argc, char **argv)
+{
+    if (argc != 2 || strcmp(argv[1], "test") != 0) {
+        shell_print(sh, "Usage: adc_test test");
+        return -EINVAL;
+    }
+
+    shell_print(sh,
+        "Running register-level SAADC test (experimental).\n"
+        "NOTE: Conversion currently returns zero values.");
+
+    adc_test();
+
+    return 0;
+}
+
+SHELL_CMD_REGISTER(adc_test, NULL,
+                   "Experimental register-level SAADC test (non-functional)",
+                   cmd_adc_test);

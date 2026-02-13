@@ -9,3 +9,4 @@ target_include_directories(app PRIVATE
 add_subdirectory(crc32)
 add_subdirectory(nfc_test)
 add_subdirectory(shell)
+add_subdirectory(adc_test)
